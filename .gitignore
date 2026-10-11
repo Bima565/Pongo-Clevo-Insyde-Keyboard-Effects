@@ -1,0 +1,69 @@
+# Visual Studio cache and user files
+.vs/
+*.user
+*.userosv
+*.suo
+*.userprefs
+*.sln.docstates
+
+# Build output directories
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+ARM/
+ARM64/
+
+# Intermediate project build folders
+CppKeybo.*/
+Keyboard.*/
+CppKbDev.*/
+
+# Visual C++ compiler and linker artifacts
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.pch
+*.res
+*.tlog
+*.lastbuildstate
+*.unsuccessfulbuild
+*.FileListAbsolute.txt
+*.recipe
+*.iobj
+*.ipdb
+*.exp
+*.lib
+
+# Database and precompiled headers
+*.VC.db
+*.VC.db-shm
+*.VC.db-wal
+*.ipch
+
+# Log and temp files
+*.log
+run.log
+
+# Build executables and DLLs in subfolders
+# (Keep vendor tools and DLLs in root)
+Debug/*.exe
+Release/*.exe
+x64/*
+*.exe
+*.dll
+
+# Allow vendor/test tools in root
+!InsydeDCHU.dll
+!KBInsydeColours.exe
+!KBInsydeTest.exe
+!GetProduct.exe
+!TestKBColour.exe
+
+# Windows OS files
+[Dd]esktop.ini
+[Tt]humbs.db
+$RECYCLE.BIN/
