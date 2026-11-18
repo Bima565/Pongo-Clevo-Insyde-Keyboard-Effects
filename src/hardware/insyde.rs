@@ -1,8 +1,9 @@
 use std::env;
 use std::path::PathBuf;
-use windows::core::{s, PCWSTR};
+use windows::core::{s, w, PCWSTR};
 use windows::Win32::Foundation::{FreeLibrary, HMODULE};
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Colour {
@@ -41,38 +42,56 @@ impl InsydeCommunicator {
     pub fn new() -> Result<Self, String> {
         let dll_name = "InsydeDCHU.dll";
 
-        // Try 1: Next to running executable
         let mut target_paths = Vec::new();
+
+        // 1. Next to running executable and parent directories (covers target/release and project root)
         if let Ok(exe_path) = env::current_exe() {
             if let Some(parent) = exe_path.parent() {
                 target_paths.push(parent.join(dll_name));
+                if let Some(p2) = parent.parent() {
+                    target_paths.push(p2.join(dll_name));
+                    if let Some(p3) = p2.parent() {
+                        target_paths.push(p3.join(dll_name));
+                    }
+                }
             }
         }
 
-        // Try 2: Current working directory
+        // 2. Current working directory
         if let Ok(cwd) = env::current_dir() {
             target_paths.push(cwd.join(dll_name));
+            if let Some(p) = cwd.parent() {
+                target_paths.push(p.join(dll_name));
+            }
         }
 
-        // Try 3: Standard DLL search
+        // 3. Fallback standard DLL search
         target_paths.push(PathBuf::from(dll_name));
 
         let mut loaded_module = None;
+        let mut tried_paths = Vec::new();
+
         for path in target_paths {
-            let path_str = path.to_string_lossy();
-            let wide: Vec<u16> = path_str.encode_utf16().chain(std::iter::once(0)).collect();
-            unsafe {
-                if let Ok(h) = LoadLibraryW(PCWSTR::from_raw(wide.as_ptr())) {
-                    if !h.is_invalid() {
-                        loaded_module = Some(h);
-                        break;
+            if path.exists() || path.as_os_str() == dll_name {
+                let path_str = path.to_string_lossy();
+                tried_paths.push(path_str.to_string());
+                let wide: Vec<u16> = path_str.encode_utf16().chain(std::iter::once(0)).collect();
+                unsafe {
+                    if let Ok(h) = LoadLibraryW(PCWSTR::from_raw(wide.as_ptr())) {
+                        if !h.is_invalid() {
+                            loaded_module = Some(h);
+                            break;
+                        }
                     }
                 }
             }
         }
 
         let module = loaded_module.ok_or_else(|| {
-            format!("Gagal memuat {} - pastikan file DLL berada di folder aplikasi.", dll_name)
+            format!(
+                "Gagal memuat {}.\nPastikan file InsydeDCHU.dll berada di folder aplikasi.\nJalur yang dicoba: {:?}",
+                dll_name, tried_paths
+            )
         })?;
 
         unsafe {
@@ -94,12 +113,6 @@ impl InsydeCommunicator {
     }
 
     pub fn set_colour(&mut self, colour: Colour) -> bool {
-        if let Some(last) = self.last_colour {
-            if last == colour {
-                return true;
-            }
-        }
-
         let dchu_data = [colour.g, colour.r, colour.b, 0xF0];
         let raw_colour = [colour.r, colour.g, colour.b];
         let mode: u8 = 8;
@@ -138,7 +151,17 @@ impl KeyboardBackend {
                 Self::Hardware(comm)
             }
             Err(err) => {
-                eprintln!("[Mock Mode] {} -> Menjalankan mode simulasi.", err);
+                eprintln!("[Error Hardware] {}", err);
+                // Show GUI alert so user knows why it didn't light up if DLL is missing
+                unsafe {
+                    let wide_err: Vec<u16> = err.encode_utf16().chain(std::iter::once(0)).collect();
+                    let _ = MessageBoxW(
+                        None,
+                        PCWSTR::from_raw(wide_err.as_ptr()),
+                        w!("Pongo Keyboard Effects - Hardware Driver"),
+                        MB_ICONERROR | MB_OK,
+                    );
+                }
                 Self::Mock { last_colour: None }
             }
         }

@@ -356,7 +356,7 @@ unsafe extern "system" fn wnd_proc(
                 right: width - 20,
                 bottom: 56,
             };
-            draw_text_helper(hdc, "Clevo Insyde DCHU High-Performance Controller", &mut rc_sub, DT_LEFT | DT_SINGLELINE);
+            draw_text_helper(hdc, "Klik efek apa saja untuk langsung menyalakan lampu", &mut rc_sub, DT_LEFT | DT_SINGLELINE);
 
             // 3. Effect Cards
             let state_lock = STATE.lock().unwrap();
@@ -368,7 +368,9 @@ unsafe extern "system" fn wnd_proc(
                 let is_running = state.running_idx == Some(i);
                 let is_hover = state.hover_idx == Some(i);
 
-                let fill = if is_sel {
+                let fill = if is_running {
+                    CLR_CARD_SEL
+                } else if is_sel {
                     CLR_CARD_SEL
                 } else if is_hover {
                     CLR_CARD_HOVER
@@ -376,7 +378,7 @@ unsafe extern "system" fn wnd_proc(
                     CLR_CARD_BG
                 };
 
-                let border = if is_sel {
+                let border = if is_running || is_sel {
                     CLR_CARD_SEL_BORDER
                 } else {
                     CLR_CARD_BORDER
@@ -384,19 +386,19 @@ unsafe extern "system" fn wnd_proc(
 
                 draw_rounded_rect(hdc, &card_rc, 8, fill, border);
 
-                // Indicator dot
+                // Indicator dot (Green if active)
                 if is_running {
                     let dot_rc = RECT {
                         left: card_rc.left + 10,
                         top: card_rc.top + 18,
-                        right: card_rc.left + 20,
-                        bottom: card_rc.top + 28,
+                        right: card_rc.left + 22,
+                        bottom: card_rc.top + 30,
                     };
-                    draw_rounded_rect(hdc, &dot_rc, 10, CLR_STATUS_GREEN, CLR_STATUS_GREEN);
+                    draw_rounded_rect(hdc, &dot_rc, 12, CLR_STATUS_GREEN, CLR_STATUS_GREEN);
                 }
 
                 // Title
-                let text_x = if is_running { card_rc.left + 26 } else { card_rc.left + 14 };
+                let text_x = if is_running { card_rc.left + 28 } else { card_rc.left + 14 };
                 let _ = SelectObject(hdc, font_item_title.into());
                 SetTextColor(hdc, CLR_TEXT_PRIMARY);
                 let mut rc_item_title = RECT {
@@ -463,17 +465,29 @@ unsafe extern "system" fn wnd_proc(
             let mut state_lock = STATE.lock().unwrap();
             let state = state_lock.as_mut().unwrap();
 
-            // Check card clicks
+            // 1. Click card -> Select AND APPLY IMMEDIATELY
             for i in 0..ALL_EFFECTS.len() {
                 let rc = get_card_rect(i, width);
                 if x >= rc.left && x <= rc.right && y >= rc.top && y <= rc.bottom {
                     state.selected_idx = i;
+                    let theme_id = ALL_EFFECTS[i].id;
+
+                    if let Some(effect) = create_effect(theme_id) {
+                        if let Some(mut old_runner) = state.runner.take() {
+                            old_runner.stop();
+                        }
+                        let backend = KeyboardBackend::auto();
+                        state.runner = Some(EffectRunner::start(effect, backend));
+                        state.running_idx = Some(i);
+                        save_settings(theme_id, state.run_at_startup);
+                    }
+
                     let _ = InvalidateRect(Some(hwnd), None, true);
                     return LRESULT(0);
                 }
             }
 
-            // Check Apply click
+            // 2. Click Apply button -> Apply selected
             let rc_apply = get_btn_apply_rect(width);
             if x >= rc_apply.left && x <= rc_apply.right && y >= rc_apply.top && y <= rc_apply.bottom {
                 let selected = state.selected_idx;
@@ -492,7 +506,7 @@ unsafe extern "system" fn wnd_proc(
                 return LRESULT(0);
             }
 
-            // Check Stop click
+            // 3. Click Stop button -> Stop and turn off
             let rc_stop = get_btn_stop_rect(width);
             if x >= rc_stop.left && x <= rc_stop.right && y >= rc_stop.top && y <= rc_stop.bottom {
                 if let Some(mut runner) = state.runner.take() {
@@ -505,7 +519,7 @@ unsafe extern "system" fn wnd_proc(
                 return LRESULT(0);
             }
 
-            // Check Startup click
+            // 4. Click Startup checkbox
             let rc_check = get_startup_checkbox_rect(width);
             if x >= rc_check.left && x <= rc_check.right && y >= rc_check.top && y <= rc_check.bottom {
                 state.run_at_startup = !state.run_at_startup;
@@ -582,18 +596,12 @@ const SIZE_MINIMIZED: u32 = 1;
 fn main() {
     let (saved_idx, run_at_startup) = load_settings();
 
-    // Check if started with auto-apply (e.g. from startup)
-    let auto_apply = env::args().any(|arg| arg == "--autostart" || arg == "-a");
-
-    let initial_runner = if auto_apply {
-        let theme_id = ALL_EFFECTS[saved_idx].id;
-        create_effect(theme_id).map(|eff| {
-            let backend = KeyboardBackend::auto();
-            EffectRunner::start(eff, backend)
-        })
-    } else {
-        None
-    };
+    // Auto-start lighting immediately as soon as GUI opens!
+    let theme_id = ALL_EFFECTS[saved_idx].id;
+    let initial_runner = create_effect(theme_id).map(|eff| {
+        let backend = KeyboardBackend::auto();
+        EffectRunner::start(eff, backend)
+    });
 
     let running_idx = if initial_runner.is_some() {
         Some(saved_idx)
